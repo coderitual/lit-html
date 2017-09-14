@@ -12,21 +12,48 @@
  * http://polymer.github.io/PATENTS.txt
  */
 
+/**
+ * TypeScript has a problem with precompiling templates literals
+ * https://github.com/Microsoft/TypeScript/issues/17956
+ *
+ * TODO(justinfagnani): Run tests compiled to ES5 with both Babel and
+ * TypeScript to verify correctness.
+ */
+const envCachesTemplates =
+    ((t: any) => t() === t())(() => ((s: TemplateStringsArray) => s) ``);
+
 // The first argument to JS template tags retain identity across multiple
 // calls to a tag for the same literal, so we can cache work done per literal
 // in a Map.
-const templates = new Map<TemplateStringsArray, Template>();
+const templates = new Map<TemplateStringsArray|string, Template>();
+const svgTemplates = new Map<TemplateStringsArray|string, Template>();
 
 /**
  * Interprets a template literal as an HTML template that can efficiently
  * render to and update a container.
  */
-export function html(
-    strings: TemplateStringsArray, ...values: any[]): TemplateResult {
-  let template = templates.get(strings);
+export const html = (strings: TemplateStringsArray, ...values: any[]) =>
+    litTag(strings, values, templates, false);
+
+/**
+ * Interprets a template literal as an SVG template that can efficiently
+ * render to and update a container.
+ */
+export const svg = (strings: TemplateStringsArray, ...values: any[]) =>
+    litTag(strings, values, svgTemplates, true);
+
+function litTag(
+    strings: TemplateStringsArray,
+    values: any[],
+    templates: Map<TemplateStringsArray|string, Template>,
+    isSvg: boolean): TemplateResult {
+  const key = envCachesTemplates ?
+      strings :
+      strings.join('{{--uniqueness-workaround--}}');
+  let template = templates.get(key);
   if (template === undefined) {
-    template = new Template(strings);
-    templates.set(strings, template);
+    template = new Template(strings, isSvg);
+    templates.set(key, template);
   }
   return new TemplateResult(template, values);
 }
@@ -110,10 +137,12 @@ export class TemplatePart {
 export class Template {
   parts: TemplatePart[] = [];
   element: HTMLTemplateElement;
+  svg: boolean;
 
-  constructor(strings: TemplateStringsArray) {
+  constructor(strings: TemplateStringsArray, svg: boolean = false) {
+    this.svg = svg;
     this.element = document.createElement('template');
-    this.element.innerHTML = strings.join(exprMarker);
+    this.element.innerHTML = this._getHtml(strings, svg);
     const walker = document.createTreeWalker(
         this.element.content, 5 /* elements & text */);
     let index = -1;
@@ -177,6 +206,14 @@ export class Template {
     for (const n of nodesToRemove) {
       n.parentNode!.removeChild(n);
     }
+  }
+
+  /**
+   * Returns a string of HTML used to create a <template> element.
+   */
+  private _getHtml(strings: TemplateStringsArray, svg?: boolean): string {
+    const html = strings.join(exprMarker);
+    return svg ? `<svg>${html}</svg>` : html;
   }
 }
 
@@ -261,6 +298,7 @@ export class NodePart implements SinglePart {
     this.instance = instance;
     this.startNode = startNode;
     this.endNode = endNode;
+    this._previousValue = undefined;
   }
 
   setValue(value: any): void {
@@ -465,6 +503,14 @@ export class TemplateInstance {
           index++;
           node = walker.nextNode();
         }
+      }
+    }
+    if (this.template.svg) {
+      const svgElement = fragment.firstChild!;
+      fragment.removeChild(svgElement);
+      const nodes = svgElement.childNodes;
+      for (let i = 0; i < nodes.length; i++) {
+        fragment.appendChild(nodes.item(i));
       }
     }
     return fragment;

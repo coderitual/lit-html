@@ -66,7 +66,7 @@ A JavaScript template literal is a string literal that can have other JavaScript
 
 ```javascript
 `My name is ${name}.`
-``` 
+```
 
 A _tagged_ template literal is prefixed with a special template tag function:
 
@@ -85,7 +85,7 @@ A `<template>` element is an inert tree of DOM (script don't run, images don't l
 
 ### Template Creation
 
-The first time `html` is called on a particular template literal it does one-time setup work to create the template. It joins all the string parts with a special placeholder, `"{{}}"`, then creates a `<template>` and sets its `innerHTML` to the result. The it walks the template's DOM and extracts the placeholder and remembers their location.
+The first time `html` is called on a particular template literal it does one-time setup work to create the template. It joins all the string parts with a special placeholder, `"{{}}"`, then creates a `<template>` and sets its `innerHTML` to the result. Then it walks the template's DOM and extracts the placeholder and remembers their location.
 
 Every call to `html` returns a `TemplateResult` which contains the template created on the first call, and the expression values for the current call.
 
@@ -142,7 +142,7 @@ render().template.parts[0].rawName === 'someProp';
 
 ```javascript
 const items = [1, 2, 3];
-const render = () => html`items = ${items.map((i) => `item: ${i})}`;
+const render = () => html`items = ${items.map((i) => `item: ${i}`)}`;
 ```
 
 ```javascript
@@ -265,7 +265,7 @@ Some examples of possible extensions:
 
 `lit-html` is very new, under initial development, and not production-ready.
 
- * It uses JavaScript modules, and there's no build set up yet, so out-of-the-box it only runs in Safari 10.1, Chrome Canary (coming in 61), and Firefox 54 (behind a flag).
+ * It uses JavaScript modules, and there's no build set up yet, so out-of-the-box it only runs in Safari 10.1, Chrome 61, and Firefox 54 (behind a flag).
  * It has a growing test suite, but it has only been run manually on Chrome Canary, Safari 10.1 and Firefox 54.
  * Much more test coverage is needed for complex templates, especially template composition and Function and Iterable values.
  * It has not been benchmarked thoroughly yet.
