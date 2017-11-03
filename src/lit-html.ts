@@ -111,20 +111,24 @@ export function render(
  */
 const attributeMarker = `{{lit-${Math.random()}}}`;
 
-/**
- * Regex to scan the string preceding an expression to see if we're in a text
- * context, and not an attribute context.
- *
- * This works by seeing if we have a `>` not followed by a `<`. If there is a
- * `<` closer to the end of the strings, then we're inside a tag.
- */
-const textRegex = />[^<]*$/;
-const hasTagsRegex = /[^<]*/;
 const textMarkerContent = '_-lit-html-_';
 const textMarker = `<!--${textMarkerContent}-->`;
 const attrOrTextRegex = new RegExp(`${attributeMarker}|${textMarker}`);
 const lastAttributeNameRegex =
     /((?:\w|[.\-_$])+)=(?:[^"']*|(?:["][^"]*)|(?:['][^']*))$/;
+
+/**
+ * Finds the closing index of the last closed HTML tag.
+ * This has 3 possible return values:
+ *   - `-1`, meaning there is no tag in str.
+ *   - `string.length`, meaning the last opened tag is unclosed.
+ *   - Some positive number < str.length, meaning the index of the closing '>'.
+ */
+function findTagClose(str: string): number {
+  const close = str.lastIndexOf('>');
+  const open = str.indexOf('<', close + 1);
+  return open > -1 ? str.length : close;
+}
 
 /**
  * A placeholder for a dynamic expression in an HTML template.
@@ -202,7 +206,8 @@ export class Template {
           // expression in this attribute attribute
           const stringForPart = strings[partIndex];
           // Find the attribute name
-          const attributeNameInPart = stringForPart.match(lastAttributeNameRegex)![1];
+          const attributeNameInPart =
+              stringForPart.match(lastAttributeNameRegex)![1];
           // Find the corresponding attribute
           const attribute = attributes.getNamedItem(attributeNameInPart);
           const stringsForAttributeValue =
@@ -290,21 +295,20 @@ export class Template {
    * Returns a string of HTML used to create a <template> element.
    */
   private _getHtml(strings: TemplateStringsArray, svg?: boolean): string {
-    const l = strings.length;
-    const a = [];
-    let isTextBinding = false;
-    for (let i = 0; i < l - 1; i++) {
+    const l = strings.length - 1;
+    let html = '';
+    let isTextBinding = true;
+    for (let i = 0; i < l; i++) {
       const s = strings[i];
-      a.push(s);
-      // We're in a text position if the previous string matches the
-      // textRegex. If it doesn't and the previous string has no tags, then
-      // we use the previous text position state.
-      isTextBinding = s.match(textRegex) !== null ||
-          (s.match(hasTagsRegex) !== null && isTextBinding);
-      a.push(isTextBinding ? textMarker : attributeMarker);
+      html += s;
+      // We're in a text position if the previous string closed its tags.
+      // If it doesn't have any tags, then we use the previous text position
+      // state.
+      const closing = findTagClose(s);
+      isTextBinding = closing > -1 ? closing < s.length : isTextBinding;
+      html += isTextBinding ? textMarker : attributeMarker;
     }
-    a.push(strings[l - 1]);
-    const html = a.join('');
+    html += strings[l];
     return svg ? `<svg>${html}</svg>` : html;
   }
 }
@@ -359,23 +363,23 @@ export class AttributePart implements MultiPart {
 
   setValue(values: any[], startIndex: number): void {
     const strings = this.strings;
+    const l = strings.length - 1;
     let text = '';
 
-    for (let i = 0; i < strings.length; i++) {
+    for (let i = 0; i < l; i++) {
       text += strings[i];
-      if (i < strings.length - 1) {
-        const v = getValue(this, values[startIndex + i]);
-        if (v &&
-            (Array.isArray(v) || typeof v !== 'string' && v[Symbol.iterator])) {
-          for (const t of v) {
-            // TODO: we need to recursively call getValue into iterables...
-            text += t;
-          }
-        } else {
-          text += v;
+      const v = getValue(this, values[startIndex + i]);
+      if (v &&
+          (Array.isArray(v) || typeof v !== 'string' && v[Symbol.iterator])) {
+        for (const t of v) {
+          // TODO: we need to recursively call getValue into iterables...
+          text += t;
         }
+      } else {
+        text += v;
       }
     }
+    text += strings[l];
     this.element.setAttribute(this.name, text);
   }
 }
@@ -517,13 +521,13 @@ export class NodePart implements SinglePart {
     }
   }
 
-  protected _setPromise(value: Promise<any>): void {
+  private _setPromise(value: Promise<any>): void {
+    this._previousValue = value;
     value.then((v: any) => {
       if (this._previousValue === value) {
         this.setValue(v);
       }
     });
-    this._previousValue = value;
   }
 
   clear(startNode: Node = this.startNode) {

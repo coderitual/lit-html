@@ -94,13 +94,25 @@ suite('lit-html', () => {
           ['someProp', 'a-nother', 'multiParts', undefined, 'aThing']);
     });
 
+    test('parses element-less text expression', () => {
+      const container = document.createElement('div');
+      const result = html`<div>${1} ${2}</div>`;
+      render(result, container);
+      assert.equal(container.innerHTML, '<div>1 2</div>');
+    });
+
+    test('parses expressions for two child nodes of one element', () => {
+      const container = document.createElement('div');
+      const result = html`test`;
+      render(result, container);
+      assert.equal(container.innerHTML, 'test');
+    });
+
     test('parses expressions for two attributes of one element', () => {
+      const container = document.createElement('div');
       const result = html`<div a="${1}" b="${2}"></div>`;
-      const parts = result.template.parts;
-      assert.equal(parts.length, 2);
-      const instance = new TemplateInstance(result.template);
-      instance._clone();
-      assert.equal(instance._parts.length, 2);
+      render(result, container);
+      assert.equal(container.innerHTML, '<div a="1" b="2"></div>');
     });
 
     test('updates when called multiple times with arrays', () => {
@@ -320,6 +332,14 @@ suite('lit-html', () => {
         ]);
       });
 
+      test('renders attributes bindings after text bindings', () => {
+        render(html`
+          <div>${''}</div>
+          <div foo=${'bar'}></div>
+        `, container);
+        assert.equal(container.innerHTML, '<div></div><div foo="bar"></div>');
+      });
+
       test('renders to attributes with attribute-like values', () => {
         render(html`<div foo="bar=${'foo'}"></div>`, container);
         assert.equal(container.innerHTML, '<div foo="bar=foo"></div>');
@@ -366,6 +386,16 @@ suite('lit-html', () => {
         return promise.then(() => {
           assert.equal(container.innerHTML, '<div>foo</div>');
         });
+      });
+
+      test('renders a sync thenable', () => {
+        const promise = {
+          then(cb: (foo: string) => void) {
+            cb('foo');
+          }
+        };
+        render(html`<div>${promise}</div>`, container);
+        assert.equal(container.innerHTML, '<div>foo</div>');
       });
 
       test('renders racing Promises correctly', () => {
