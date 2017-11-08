@@ -98,10 +98,7 @@ export function render(
   const fragment = instance._clone();
   instance.update(result.values);
 
-  let child;
-  while ((child = container.lastChild)) {
-    container.removeChild(child);
-  }
+  removeNodes(container, container.firstChild);
   container.appendChild(fragment);
 }
 
@@ -109,13 +106,38 @@ export function render(
  * An expression marker with embedded unique key to avoid
  * https://github.com/PolymerLabs/lit-html/issues/62
  */
-const attributeMarker = `{{lit-${Math.random()}}}`;
+const marker = `{{lit-${String(Math.random()).slice(2)}}}`;
+const nodeMarker = `<!--${marker}-->`;
+const markerRegex = new RegExp(`${marker}|${nodeMarker}`);
+const nonWhitespace = /[^\s]/;
 
-const textMarkerContent = '_-lit-html-_';
-const textMarker = `<!--${textMarkerContent}-->`;
-const attrOrTextRegex = new RegExp(`${attributeMarker}|${textMarker}`);
+/**
+ * This regex extracts the attribute name preceding an attribute-position
+ * expression. It does this by matching the syntax allowed for attributes
+ * against the string literal directly preceding the expression, assuming that
+ * the expression is in an attribute-value position.
+ *
+ * See attributes in the HTML spec:
+ * https://www.w3.org/TR/html5/syntax.html#attributes-0
+ *
+ * "\0-\x1F\x7F-\x9F" are Unicode control characters
+ *
+ * " \x09\x0a\x0c\x0d" are HTML space characters:
+ * https://www.w3.org/TR/html5/infrastructure.html#space-character
+ *
+ * So an attribute is:
+ *  * The name: any character except a control character, space character, ('),
+ *    ("), ">", "=", or "/"
+ *  * Followed by zero or more space characters
+ *  * Followed by "="
+ *  * Followed by zero or more space characters
+ *  * Followed by:
+ *    * Any character except space, ('), ("), "<", ">", "=", or
+ *    * (") then any non-("), or
+ *    * (') then any non-(')
+ */
 const lastAttributeNameRegex =
-    /((?:\w|[.\-_$])+)=(?:[^"']*|(?:["][^"]*)|(?:['][^']*))$/;
+    /([^\0-\x1F\x7F-\x9F \x09\x0a\x0c\x0d"'>=/]+)[ \x09\x0a\x0c\x0d]*=[ \x09\x0a\x0c\x0d]*(?:[^ \x09\x0a\x0c\x0d"'`<>=]*|"[^"]*|'[^']*)$/;
 
 /**
  * Finds the closing index of the last closed HTML tag.
@@ -157,15 +179,21 @@ export class TemplatePart {
 export class Template {
   parts: TemplatePart[] = [];
   element: HTMLTemplateElement;
-  svg: boolean;
 
   constructor(strings: TemplateStringsArray, svg: boolean = false) {
-    this.svg = svg;
-    this.element = document.createElement('template');
-    this.element.innerHTML = this._getHtml(strings, svg);
+    const element = this.element = document.createElement('template');
+    element.innerHTML = this._getHtml(strings, svg);
+    const content = element.content;
+
+    if (svg) {
+      const svgElement = content.firstChild!;
+      content.removeChild(svgElement);
+      reparentNodes(content, svgElement.firstChild);
+    }
+
     // Edge needs all 4 parameters present; IE11 needs 3rd parameter to be null
     const walker = document.createTreeWalker(
-        this.element.content,
+        content,
         133 /* NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT |
                NodeFilter.SHOW_TEXT */
         ,
@@ -194,24 +222,22 @@ export class Template {
         // attributes are not guaranteed to be returned in document order. In
         // particular, Edge/IE can return them out of order, so we cannot assume
         // a correspondance between part index and attribute index.
-
-        // Do a first pass to count attributes that correspond to parts.
-        const attributesWithParts: string[][] = Array.prototype.filter.call(
-            attributes,
-            (attribute: Attr) =>
-                attribute.value.split(attrOrTextRegex).length > 1);
-        // Loop that many times, but don't use loop index for anything.
-        for (let i = 0; i < attributesWithParts.length; i++) {
+        let count = 0;
+        for (let i = 0; i < attributes.length; i++) {
+          if (attributes[i].value.indexOf(marker) >= 0) {
+            count++;
+          }
+        }
+        while (count-- > 0) {
           // Get the template literal section leading up to the first
           // expression in this attribute attribute
           const stringForPart = strings[partIndex];
           // Find the attribute name
           const attributeNameInPart =
-              stringForPart.match(lastAttributeNameRegex)![1];
+              lastAttributeNameRegex.exec(stringForPart)![1];
           // Find the corresponding attribute
           const attribute = attributes.getNamedItem(attributeNameInPart);
-          const stringsForAttributeValue =
-              attribute.value.split(attrOrTextRegex);
+          const stringsForAttributeValue = attribute.value.split(markerRegex);
           this.parts.push(new TemplatePart(
               'attribute',
               index,
@@ -223,9 +249,9 @@ export class Template {
         }
       } else if (node.nodeType === 3 /* Node.TEXT_NODE */) {
         const nodeValue = node.nodeValue!;
-        const strings = nodeValue.split(attrOrTextRegex);
-        if (strings.length > 1) {
+        if (nodeValue.indexOf(marker) > -1) {
           const parent = node.parentNode!;
+          const strings = nodeValue.split(markerRegex);
           const lastIndex = strings.length - 1;
 
           // We have a part for each match found
@@ -251,7 +277,7 @@ export class Template {
                previousSibling.nodeType === 1 /* Node.ELEMENT_NODE */) &&
               (nextSibling === null ||
                nextSibling.nodeType === 1 /* Node.ELEMENT_NODE */) &&
-              nodeValue.trim() === '') {
+              !nonWhitespace.test(nodeValue)) {
             nodesToRemove.push(node);
             currentNode = previousNode;
             index--;
@@ -259,22 +285,30 @@ export class Template {
         }
       } else if (
           node.nodeType === 8 /* Node.COMMENT_NODE */ &&
-          node.nodeValue === textMarkerContent) {
+          node.nodeValue === marker) {
         const parent = node.parentNode!;
-        // If we don't have a previous node add a marker node.
-        // If the previousSibling is removed, because it's another part
-        // placholder, or empty text, add a marker node.
-        if (node.previousSibling === null ||
-            node.previousSibling !== previousNode) {
+        // Add a new marker node to be the startNode of the Part if any of the
+        // following are true:
+        //  * We don't have a previousSibling
+        //  * previousSibling is being removed (thus it's not the
+        //    `previousNode`)
+        //  * previousSibling is not a Text node
+        //
+        // TODO(justinfagnani): We should be able to use the previousNode here
+        // as the marker node and reduce the number of extra nodes we add to a
+        // template. See https://github.com/PolymerLabs/lit-html/issues/147
+        const previousSibling = node.previousSibling;
+        if (previousSibling === null || previousSibling !== previousNode ||
+            previousSibling.nodeType !== Node.TEXT_NODE) {
           parent.insertBefore(document.createTextNode(''), node);
         } else {
           index--;
         }
         this.parts.push(new TemplatePart('node', index++));
         nodesToRemove.push(node);
-        // If we don't have a next node add a marker node.
+        // If we don't have a nextSibling add a marker node.
         // We don't have to check if the next node is going to be removed,
-        // because that node will induce a marker if so.
+        // because that node will induce a new marker if so.
         if (node.nextSibling === null) {
           parent.insertBefore(document.createTextNode(''), node);
         } else {
@@ -306,7 +340,7 @@ export class Template {
       // state.
       const closing = findTagClose(s);
       isTextBinding = closing > -1 ? closing < s.length : isTextBinding;
-      html += isTextBinding ? textMarker : attributeMarker;
+      html += isTextBinding ? nodeMarker : marker;
     }
     html += strings[l];
     return svg ? `<svg>${html}</svg>` : html;
@@ -361,7 +395,7 @@ export class AttributePart implements MultiPart {
     this.size = strings.length - 1;
   }
 
-  setValue(values: any[], startIndex: number): void {
+  protected _interpolate(values: any[], startIndex: number) {
     const strings = this.strings;
     const l = strings.length - 1;
     let text = '';
@@ -379,7 +413,11 @@ export class AttributePart implements MultiPart {
         text += v;
       }
     }
-    text += strings[l];
+    return text + strings[l];
+  }
+
+  setValue(values: any[], startIndex: number): void {
+    const text = this._interpolate(values, startIndex);
     this.element.setAttribute(this.name, text);
   }
 }
@@ -531,10 +569,8 @@ export class NodePart implements SinglePart {
   }
 
   clear(startNode: Node = this.startNode) {
-    let node;
-    while ((node = startNode.nextSibling!) !== this.endNode) {
-      node.parentNode!.removeChild(node);
-    }
+    removeNodes(
+        this.startNode.parentNode!, startNode.nextSibling!, this.endNode);
   }
 }
 
@@ -586,8 +622,9 @@ export class TemplateInstance {
 
   _clone(): DocumentFragment {
     const fragment = document.importNode(this.template.element.content, true);
+    const parts = this.template.parts;
 
-    if (this.template.parts.length > 0) {
+    if (parts.length > 0) {
       // Edge needs all 4 parameters present; IE11 needs 3rd parameter to be
       // null
       const walker = document.createTreeWalker(
@@ -598,29 +635,50 @@ export class TemplateInstance {
           null as any,
           false);
 
-      const parts = this.template.parts;
-      let index = 0;
-      let partIndex = 0;
-      let templatePart = parts[0];
-      let node = walker.nextNode();
-      while (node != null && partIndex < parts.length) {
-        if (index === templatePart.index) {
-          this._parts.push(this._partCallback(this, templatePart, node));
-          templatePart = parts[++partIndex];
-        } else {
+      let index = -1;
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        while (index < part.index) {
           index++;
-          node = walker.nextNode();
+          walker.nextNode();
         }
-      }
-    }
-    if (this.template.svg) {
-      const svgElement = fragment.firstChild!;
-      fragment.removeChild(svgElement);
-      const nodes = svgElement.childNodes;
-      for (let i = 0; i < nodes.length; i++) {
-        fragment.appendChild(nodes.item(i));
+        this._parts.push(this._partCallback(this, part, walker.currentNode));
       }
     }
     return fragment;
   }
 }
+
+/**
+ * Reparents nodes, starting from `startNode` (inclusive) to `endNode`
+ * (exclusive), into another container (could be the same container), before
+ * `beforeNode`. If `beforeNode` is null, it appends the nodes to the
+ * container.
+ */
+export const reparentNodes =
+    (container: Node,
+     start: Node | null,
+     end: Node | null = null,
+     before: Node | null = null): void => {
+      let node = start;
+      while (node !== end) {
+        const n = node!.nextSibling;
+        container.insertBefore(node!, before as Node);
+        node = n;
+      }
+    };
+
+/**
+ * Removes nodes, starting from `startNode` (inclusive) to `endNode`
+ * (exclusive), from `container`.
+ */
+export const removeNodes =
+    (container: Node, startNode: Node | null, endNode: Node | null = null):
+        void => {
+          let node = startNode;
+          while (node !== endNode) {
+            const n = node!.nextSibling;
+            container.removeChild(node!);
+            node = n;
+          }
+        };

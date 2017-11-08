@@ -12,7 +12,7 @@
  * http://polymer.github.io/PATENTS.txt
  */
 
-import {directive, DirectiveFn, NodePart} from '../lit-html.js';
+import {directive, DirectiveFn, NodePart, removeNodes, reparentNodes} from '../lit-html.js';
 
 export type KeyFn<T> = (item: T) => any;
 export type ItemTemplate<T> = (item: T, index: number) => any;
@@ -43,7 +43,7 @@ export function repeat<T>(
 
     let keyMap = keyMapCache.get(part);
     if (keyMap === undefined) {
-      keyMap = new Map(),
+      keyMap = new Map();
       keyMapCache.set(part, keyMap);
     }
     const container = part.startNode.parentNode as HTMLElement | ShadowRoot |
@@ -56,7 +56,7 @@ export function repeat<T>(
       let key;
       try {
         ++index;
-        result = template!(item, index);
+        result = template !(item, index);
         key = keyFn ? keyFn(item) : index;
       } catch (e) {
         console.error(e);
@@ -76,11 +76,13 @@ export function repeat<T>(
         }
       } else if (currentMarker !== itemPart.startNode) {
         // Existing part in the wrong position
-        const end = itemPart.endNode.nextSibling;
-        for (let node = itemPart.startNode; node !== end;) {
-          const n = node.nextSibling!;
-          container.insertBefore(node, currentMarker);
-          node = n;
+        const end = itemPart.endNode.nextSibling!;
+        if (currentMarker !== end) {
+          reparentNodes(
+              container,
+              itemPart.startNode,
+              end,
+              currentMarker);
         }
       } else {
         // else part is in the correct position already
@@ -92,12 +94,7 @@ export function repeat<T>(
 
     // Cleanup
     if (currentMarker !== part.endNode) {
-      const end = part.endNode;
-      for (let node = currentMarker; node !== end;) {
-        const n = node.nextSibling!;
-        container.removeChild(node);
-        node = n;
-      }
+      removeNodes(container, currentMarker, part.endNode);
       keyMap.forEach(cleanMap);
     }
   });

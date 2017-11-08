@@ -80,18 +80,39 @@ suite('lit-html', () => {
         <div
           someProp="${1}"
           a-nother="${2}"
-          multiParts='${3} ${4}'>
-          <p>${5}</p>
-          <div aThing="${6}"></div>
+          multiParts='${3} ${4}'
+          👍=${5}
+          (a)=${6}
+          [a]=${7}
+          a$=${8}>
+          <p>${9}</p>
+          <div aThing="${10}"></div>
         </div>`;
       const parts = result.template.parts;
       const names = parts.map((p: TemplatePart) => p.name);
       const rawNames = parts.map((p: TemplatePart) => p.rawName);
-      assert.deepEqual(
-          names, ['someprop', 'a-nother', 'multiparts', undefined, 'athing']);
-      assert.deepEqual(
-          rawNames,
-          ['someProp', 'a-nother', 'multiParts', undefined, 'aThing']);
+      assert.deepEqual(names, [
+        'someprop',
+        'a-nother',
+        'multiparts',
+        '👍',
+        '(a)',
+        '[a]',
+        'a$',
+        undefined,
+        'athing'
+      ]);
+      assert.deepEqual(rawNames, [
+        'someProp',
+        'a-nother',
+        'multiParts',
+        '👍',
+        '(a)',
+        '[a]',
+        'a$',
+        undefined,
+        'aThing'
+      ]);
     });
 
     test('parses element-less text expression', () => {
@@ -480,6 +501,16 @@ suite('lit-html', () => {
         assert.equal(container.innerHTML, `<div>
             <!-- this is a comment -->
             <h1 class="foo">title</h1><p>foo</p></div>`);
+      });
+
+      test('renders expressions with preceding elements', () => {
+        render(html`<a>${'foo'}</a>${html`<h1>${'bar'}</h1>`}`, container);
+        assert.equal(container.innerHTML, '<a>foo</a><h1>bar</h1>');
+
+        // This is nearly the same test case as above, but was causing a
+        // different stack trace
+        render(html`<a>${'foo'}</a>${'bar'}`, container);
+        assert.equal(container.innerHTML, '<a>foo</a>bar');
       });
 
     });
