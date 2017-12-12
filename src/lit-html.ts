@@ -109,7 +109,6 @@ export function render(
 const marker = `{{lit-${String(Math.random()).slice(2)}}}`;
 const nodeMarker = `<!--${marker}-->`;
 const markerRegex = new RegExp(`${marker}|${nodeMarker}`);
-const nonWhitespace = /[^\s]/;
 
 /**
  * This regex extracts the attribute name preceding an attribute-position
@@ -132,12 +131,12 @@ const nonWhitespace = /[^\s]/;
  *  * Followed by "="
  *  * Followed by zero or more space characters
  *  * Followed by:
- *    * Any character except space, ('), ("), "<", ">", "=", or
+ *    * Any character except space, ('), ("), "<", ">", "=", (`), or
  *    * (") then any non-("), or
  *    * (') then any non-(')
  */
 const lastAttributeNameRegex =
-    /([^\0-\x1F\x7F-\x9F \x09\x0a\x0c\x0d"'>=/]+)[ \x09\x0a\x0c\x0d]*=[ \x09\x0a\x0c\x0d]*(?:[^ \x09\x0a\x0c\x0d"'`<>=]*|"[^"]*|'[^']*)$/;
+    /[ \x09\x0a\x0c\x0d]([^\0-\x1F\x7F-\x9F \x09\x0a\x0c\x0d"'>=/]+)[ \x09\x0a\x0c\x0d]*=[ \x09\x0a\x0c\x0d]*(?:[^ \x09\x0a\x0c\x0d"'`<>=]*|"[^"]*|'[^']*)$/;
 
 /**
  * Finds the closing index of the last closed HTML tag.
@@ -249,40 +248,33 @@ export class Template {
         }
       } else if (node.nodeType === 3 /* Node.TEXT_NODE */) {
         const nodeValue = node.nodeValue!;
-        if (nodeValue.indexOf(marker) > -1) {
-          const parent = node.parentNode!;
-          const strings = nodeValue.split(markerRegex);
-          const lastIndex = strings.length - 1;
-
-          // We have a part for each match found
-          partIndex += lastIndex;
-
-          // We keep this current node, but reset its content to the last
-          // literal part. We insert new literal nodes before this so that the
-          // tree walker keeps its position correctly.
-          node.textContent = strings[lastIndex];
-
-          // Generate a new text node for each literal section
-          // These nodes are also used as the markers for node parts
-          for (let i = 0; i < lastIndex; i++) {
-            parent.insertBefore(document.createTextNode(strings[i]), node);
-            this.parts.push(new TemplatePart('node', index++));
-          }
-        } else {
-          // Strip whitespace-only nodes, only between elements, or at the
-          // beginning or end of elements.
-          const previousSibling = node.previousSibling;
-          const nextSibling = node.nextSibling;
-          if ((previousSibling === null ||
-               previousSibling.nodeType === 1 /* Node.ELEMENT_NODE */) &&
-              (nextSibling === null ||
-               nextSibling.nodeType === 1 /* Node.ELEMENT_NODE */) &&
-              !nonWhitespace.test(nodeValue)) {
-            nodesToRemove.push(node);
-            currentNode = previousNode;
-            index--;
-          }
+        if (nodeValue.indexOf(marker) < 0) {
+          continue;
         }
+
+        const parent = node.parentNode!;
+        const strings = nodeValue.split(markerRegex);
+        const lastIndex = strings.length - 1;
+
+        // We have a part for each match found
+        partIndex += lastIndex;
+
+        // Generate a new text node for each literal section
+        // These nodes are also used as the markers for node parts
+        for (let i = 0; i < lastIndex; i++) {
+          // IE doesn't clone empty text nodes, so use comments instead
+          previousNode = strings[i] === '' ? document.createComment('') :
+            document.createTextNode(strings[i]);
+          parent.insertBefore(previousNode, node);
+          this.parts.push(new TemplatePart('node', index++));
+        }
+
+        parent.insertBefore(
+            strings[lastIndex] === '' ?
+                document.createComment('') :
+                document.createTextNode(strings[lastIndex]),
+            node);
+        nodesToRemove.push(node);
       } else if (
           node.nodeType === 8 /* Node.COMMENT_NODE */ &&
           node.nodeValue === marker) {
@@ -300,7 +292,7 @@ export class Template {
         const previousSibling = node.previousSibling;
         if (previousSibling === null || previousSibling !== previousNode ||
             previousSibling.nodeType !== Node.TEXT_NODE) {
-          parent.insertBefore(document.createTextNode(''), node);
+          parent.insertBefore(document.createComment(''), node);
         } else {
           index--;
         }
@@ -310,7 +302,7 @@ export class Template {
         // We don't have to check if the next node is going to be removed,
         // because that node will induce a new marker if so.
         if (node.nextSibling === null) {
-          parent.insertBefore(document.createTextNode(''), node);
+          parent.insertBefore(document.createComment(''), node);
         } else {
           index--;
         }
@@ -347,29 +339,38 @@ export class Template {
   }
 }
 
+/**
+ * Returns a value ready to be inserted into a Part from a user-provided value.
+ *
+ * If the user value is a directive, this invokes the directive with the given
+ * part. If the value is null, it's converted to undefined to work better
+ * with certain DOM APIs, like textContent.
+ */
 export const getValue = (part: Part, value: any) => {
   // `null` as the value of a Text node will render the string 'null'
   // so we convert it to undefined
-  if (value != null && value.__litDirective === true) {
+  if (isDirective(value)) {
     value = value(part);
+    return directiveValue;
   }
   return value === null ? undefined : value;
 };
 
-export type DirectiveFn = (part: Part) => any;
+export type DirectiveFn<P extends Part = Part> = (part: P) => any;
 
-export const directive = <F extends DirectiveFn>(f: F): F => {
+export const directive = <P extends Part = Part, F = DirectiveFn<P>>(f: F): F => {
   (f as any).__litDirective = true;
   return f;
 };
 
+const isDirective = (o: any) =>
+    typeof o === 'function' && o.__litDirective === true;
+
+const directiveValue = {};
+
 export interface Part {
   instance: TemplateInstance;
   size?: number;
-
-  // constructor(instance: TemplateInstance) {
-  //   this.instance = instance;
-  // }
 }
 
 export interface SinglePart extends Part { setValue(value: any): void; }
@@ -403,7 +404,7 @@ export class AttributePart implements MultiPart {
     for (let i = 0; i < l; i++) {
       text += strings[i];
       const v = getValue(this, values[startIndex + i]);
-      if (v &&
+      if (v && v !== directiveValue &&
           (Array.isArray(v) || typeof v !== 'string' && v[Symbol.iterator])) {
         for (const t of v) {
           // TODO: we need to recursively call getValue into iterables...
@@ -426,18 +427,21 @@ export class NodePart implements SinglePart {
   instance: TemplateInstance;
   startNode: Node;
   endNode: Node;
-  private _previousValue: any;
+  _previousValue: any;
 
   constructor(instance: TemplateInstance, startNode: Node, endNode: Node) {
     this.instance = instance;
     this.startNode = startNode;
     this.endNode = endNode;
+
     this._previousValue = undefined;
   }
 
   setValue(value: any): void {
     value = getValue(this, value);
-
+    if (value === directiveValue) {
+      return;
+    }
     if (value === null ||
         !(typeof value === 'object' || typeof value === 'function')) {
       // Handle primitive values
@@ -475,6 +479,7 @@ export class NodePart implements SinglePart {
 
   private _setText(value: string): void {
     const node = this.startNode.nextSibling!;
+    value = value === undefined ? '' : value;
     if (node === this.endNode.previousSibling &&
         node.nodeType === Node.TEXT_NODE) {
       // If we only have a single text node between the markers, we can just
@@ -483,7 +488,7 @@ export class NodePart implements SinglePart {
       // primitive?
       node.textContent = value;
     } else {
-      this._setNode(document.createTextNode(value === undefined ? '' : value));
+      this._setNode(document.createTextNode(value));
     }
     this._previousValue = value;
   }
