@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+  <head>
+    <script>
+      if (location.search.match('shadydom')) {
+        window.ShadyDOM = {force: true};
+      }
+      if (location.search.match('shimcssproperties')) {
+        window.ShadyCSS = {shimcssproperties: true};
+      }
+    </script>
+    <script src="../node_modules/wct-browser-legacy/browser.js"></script>
+    <script src="../node_modules/@webcomponents/webcomponentsjs/webcomponents-loader.js"></script>
+  </head>
+  <body>
+    <script type="module" src="./lib/shady-render_test.js"></script>
+  </body>
+</html>

@@ -6,6 +6,7 @@
     <script src="../node_modules/babel-polyfill/dist/polyfill.min.js"></script>
   </head>
   <body>
+    <script type="module" src="./core_test.js"></script>
     <script type="module" src="./lit-html_test.js"></script>
     <script type="module" src="./lib/repeat_test.js"></script>
     <script type="module" src="./lib/until_test.js"></script>
@@ -13,5 +14,16 @@
     <script type="module" src="./lib/unsafe-html_test.js"></script>
     <script type="module" src="./lib/async-append_test.js"></script>
     <script type="module" src="./lib/async-replace_test.js"></script>
+    <script type="module" src="./lib/modify-template_test.js"></script>
+    <script type="module">
+      WCT.loadSuites([
+        'shady.html',
+        'shady.html?shadydom=true',
+        'shady.html?shadydom=true&shimscssproperties=true',
+        'shady-apply.html',
+        'shady-apply.html?shadydom=true',
+        'shady-apply.html?shadydom=true&shimscssproperties=true',
+      ]);
+    </script>
   </body>
 </html>

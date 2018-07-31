@@ -15,14 +15,15 @@
 /// <reference path="../../../node_modules/@types/mocha/index.d.ts" />
 /// <reference path="../../../node_modules/@types/chai/index.d.ts" />
 
+import {html, render} from '../../core.js';
 import {until} from '../../lib/until.js';
-import {html, render} from '../../lit-html.js';
+import {stripExpressionDelimeters} from '../test-helpers.js';
+
 import {Deferred} from './deferred.js';
 
 const assert = chai.assert;
 
 suite('until', () => {
-
   let container: HTMLDivElement;
   let deferred: Deferred<string>;
 
@@ -36,34 +37,43 @@ suite('until', () => {
         html
         `<div>${until(deferred.promise, html`<span>loading...</span>`)}</div>`,
         container);
-    assert.equal(container.innerHTML, '<div><!----><span>loading...</span><!----></div>');
-    deferred.resolve('foo');
-            return deferred.promise
-                .then(() => new Promise((r) => setTimeout(() => r())))
-                .then(() => {
-                  assert.equal(container.innerHTML, '<div><!---->foo<!----></div>');
-                });
+        assert.equal(
+            stripExpressionDelimeters(container.innerHTML),
+            '<div><span>loading...</span></div>');
+        deferred.resolve('foo');
+        return deferred.promise
+            .then(() => new Promise((r) => setTimeout(() => r())))
+            .then(() => {
+              assert.equal(
+                  stripExpressionDelimeters(container.innerHTML),
+                  '<div>foo</div>');
+            });
   });
 
   test('renders new Promise over existing Promise', () => {
     const t = (v: any) =>
         html`<div>${until(v, html`<span>loading...</span>`)}</div>`;
     render(t(deferred.promise), container);
-    assert.equal(container.innerHTML, '<div><!----><span>loading...</span><!----></div>');
+    assert.equal(
+        stripExpressionDelimeters(container.innerHTML),
+        '<div><span>loading...</span></div>');
 
     const deferred2 = new Deferred<string>();
     render(t(deferred2.promise), container);
-    assert.equal(container.innerHTML, '<div><!----><span>loading...</span><!----></div>');
+    assert.equal(
+        stripExpressionDelimeters(container.innerHTML),
+        '<div><span>loading...</span></div>');
 
     deferred2.resolve('bar');
     return deferred2.promise.then(() => {
-      assert.equal(container.innerHTML, '<div><!---->bar<!----></div>');
+      assert.equal(
+          stripExpressionDelimeters(container.innerHTML), '<div>bar</div>');
 
       deferred.resolve('foo');
       return deferred.promise.then(() => {
-        assert.equal(container.innerHTML, '<div><!---->bar<!----></div>');
+        assert.equal(
+            stripExpressionDelimeters(container.innerHTML), '<div>bar</div>');
       });
     });
   });
-
 });

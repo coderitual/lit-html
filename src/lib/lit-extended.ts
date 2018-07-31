@@ -12,15 +12,27 @@
  * http://polymer.github.io/PATENTS.txt
  */
 
-import {AttributePart, defaultPartCallback, getValue, Part, render as baseRender, TemplateInstance, TemplatePart, TemplateResult} from '../lit-html.js';
+import {AttributePart, defaultPartCallback, Part, SVGTemplateResult, TemplateInstance, TemplatePart, TemplateResult} from '../core.js';
+import {BooleanAttributePart, EventPart, PropertyPart} from '../lit-html.js';
 
-export {html} from '../lit-html.js';
+export {render} from '../core.js';
+export {BooleanAttributePart, EventPart, PropertyPart} from '../lit-html.js';
 
 /**
- *
- * @param result Renders a `TemplateResult` to a container using the
- * `extendedPartCallback` PartCallback, which allows templates to set
- * properties and declarative event handlers.
+ * Interprets a template literal as a lit-extended HTML template.
+ */
+export const html = (strings: TemplateStringsArray, ...values: any[]) =>
+    new TemplateResult(strings, values, 'html', extendedPartCallback);
+
+/**
+ * Interprets a template literal as a lit-extended SVG template.
+ */
+export const svg = (strings: TemplateStringsArray, ...values: any[]) =>
+    new SVGTemplateResult(strings, values, 'svg', extendedPartCallback);
+
+/**
+ * A PartCallback which allows templates to set properties and declarative
+ * event handlers.
  *
  * Properties are set by default, instead of attributes. Attribute names in
  * lit-html templates preserve case, so properties are case sensitive. If an
@@ -42,23 +54,27 @@ export {html} from '../lit-html.js';
  *
  *     html`<button on-click=${(e)=> this.onClickHandler(e)}>Buy Now</button>`
  *
+ * @deprecated Please use /lit-html.js instead. lit-extended will be removed in
+ *     a future version.
  */
-export function render(
-    result: TemplateResult, container: Element|DocumentFragment) {
-  baseRender(result, container, extendedPartCallback);
-}
-
 export const extendedPartCallback =
     (instance: TemplateInstance, templatePart: TemplatePart, node: Node):
         Part => {
           if (templatePart.type === 'attribute') {
-            if (templatePart.rawName!.startsWith('on-')) {
+            if (templatePart.rawName!.substr(0, 3) === 'on-') {
               const eventName = templatePart.rawName!.slice(3);
               return new EventPart(instance, node as Element, eventName);
             }
-            if (templatePart.name!.endsWith('$')) {
+            const lastChar =
+                templatePart.name!.substr(templatePart.name!.length - 1);
+            if (lastChar === '$') {
               const name = templatePart.name!.slice(0, -1);
               return new AttributePart(
+                  instance, node as Element, name, templatePart.strings!);
+            }
+            if (lastChar === '?') {
+              const name = templatePart.name!.slice(0, -1);
+              return new BooleanAttributePart(
                   instance, node as Element, name, templatePart.strings!);
             }
             return new PropertyPart(
@@ -69,48 +85,3 @@ export const extendedPartCallback =
           }
           return defaultPartCallback(instance, templatePart, node);
         };
-
-export class PropertyPart extends AttributePart {
-  setValue(values: any[], startIndex: number): void {
-    const s = this.strings;
-    let value: any;
-    if (s.length === 2 && s[0] === '' && s[1] === '') {
-      // An expression that occupies the whole attribute value will leave
-      // leading and trailing empty strings.
-      value = getValue(this, values[startIndex]);
-    } else {
-      // Interpolation, so interpolate
-      value = this._interpolate(values, startIndex);
-    }
-    (this.element as any)[this.name] = value;
-  }
-}
-
-export class EventPart implements Part {
-  instance: TemplateInstance;
-  element: Element;
-  eventName: string;
-  private _listener: any;
-
-  constructor(instance: TemplateInstance, element: Element, eventName: string) {
-    this.instance = instance;
-    this.element = element;
-    this.eventName = eventName;
-  }
-
-  setValue(value: any): void {
-    const listener = getValue(this, value);
-    const previous = this._listener;
-    if (listener === previous) {
-      return;
-    }
-
-    this._listener = listener;
-    if (previous != null) {
-      this.element.removeEventListener(this.eventName, previous);
-    }
-    if (listener != null) {
-      this.element.addEventListener(this.eventName, listener);
-    }
-  }
-}

@@ -1,10 +1,16 @@
 /node_modules/
 /lib/
 
+/tools/node_modules/
+/tools/lib/
+
 # Compiler output
 /lit-html.d.ts
 /lit-html.js
 /lit-html.js.map
+/core.d.ts
+/core.js
+/core.js.map
 /test/**/*.d.ts
 /test/**/*.js
 /test/**/*.js.map
