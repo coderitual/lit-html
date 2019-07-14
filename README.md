@@ -1,15 +1,15 @@
-> ## 🛠 Status: In Development
-> lit-html is currently in development. It's on the fast track to a 1.0 release, so we encourage you to use it and give us your feedback, but there are things that haven't been finalized yet and you can expect some changes.
-
 # lit-html
 Efficient, Expressive, Extensible HTML templates in JavaScript
 
 [![Build Status](https://travis-ci.org/Polymer/lit-html.svg?branch=master)](https://travis-ci.org/Polymer/lit-html)
 [![Published on npm](https://img.shields.io/npm/v/lit-html.svg)](https://www.npmjs.com/package/lit-html)
+[![Mentioned in Awesome lit-html](https://awesome.re/mentioned-badge.svg)](https://github.com/web-padawan/awesome-lit-html)
 
 ## Documentation
 
-Full documentation is available at [polymer.github.io/lit-html](https://polymer.github.io/lit-html).
+Full documentation is available at [lit-html.polymer-project.org](https://lit-html.polymer-project.org).
+
+Docs source is in the `docs` folder. To build the site youself, see the instructions in [docs/README.md](docs/README.md).
 
 ## Overview
 
@@ -41,11 +41,6 @@ render(helloTemplate('Kevin'), document.body);
 $ npm install lit-html
 ```
 
-## Status
-
-`lit-html` is under active development and has not yet had a 1.0 release. The
-internal API may still change somewhat. The `html` and `render` API is stable.
-
 ## Contributing
 
-Please see [CONTRIBUTING.md]().
+Please see [CONTRIBUTING.md](./CONTRIBUTING.md).
